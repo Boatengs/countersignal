@@ -36,10 +36,14 @@ jobs:
               linked=$(grep -o 'static/public/[0-9]*/[^"]*\.zip' page.html | head -1 || true)
               echo "::notice::$name zip linked on page: ${linked:-none}"
               if [ -n "$linked" ]; then url="https://archive.ics.uci.edu/$linked"; fi
-              license=$(grep -o -i 'licensed under a[^<]*' page.html | head -1 || true)
-              if [ -z "$license" ]; then
-                license=$(grep -o -i 'creative commons[^<"]*' page.html | head -1 || true)
-              fi
+              license=$(python - <<'PY'
+          import html, re
+          text = re.sub(r"<[^>]+>", " ", open("page.html", encoding="utf-8", errors="replace").read())
+          text = re.sub(r"\s+", " ", html.unescape(text))
+          m = re.search(r"licensed under (?:an? )?(?:Creative Commons|CC)[^<>]{0,160}?license", text, re.I)
+          print(m.group(0).strip() if m else "")
+          PY
+              )
               echo "::notice::$name license text: ${license:-none found}"
               test -n "$license" || { echo "::error::$name: no license statement found on the UCI page; refusing to use it"; exit 1; }
             fi

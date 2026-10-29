@@ -12,6 +12,7 @@ The outcome is in hospital death.
 
 from __future__ import annotations
 
+import io
 import json
 import zipfile
 from pathlib import Path
@@ -62,8 +63,15 @@ def load(zip_path: str | Path, manifest_path: str | Path | None = None) -> tuple
         if recorded != digest:
             raise ValueError(f"archive checksum {digest} does not match manifest {recorded}")
     with zipfile.ZipFile(zip_path) as z:
-        member = _primary_member(z)
-        data = pd.read_csv(z.open(member))
+        inner = [m for m in z.namelist() if m.lower().endswith(".zip")]
+        if inner and not any(m.lower().endswith("primary_cohort.csv") for m in z.namelist()):
+            # the UCI download wraps the published archive in a second zip
+            with zipfile.ZipFile(io.BytesIO(z.read(inner[0]))) as zi:
+                member = f"{inner[0]}/{_primary_member(zi)}"
+                data = pd.read_csv(zi.open(_primary_member(zi)))
+        else:
+            member = _primary_member(z)
+            data = pd.read_csv(z.open(member))
     cohort, counts = build_cohort(data)
     counts.update({"sha256": digest, "source": URL, "citation": CITATION, "file": member})
     return cohort, counts

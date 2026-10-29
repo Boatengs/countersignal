@@ -20,3 +20,16 @@ def test_sepsis_primary_cohort(tmp_path):
     assert counts["admissions"] == 3 and counts["deaths"] == 1
     assert cohort["outcome"].tolist() == [0, 1, 0]  # outcome is death
     assert counts["file"].endswith("primary_cohort.csv")
+
+
+def test_sepsis_nested_archive(tmp_path):
+    frame = pd.DataFrame({"age_years": [61], "sex_0male_1female": [1],
+                          "episode_number": [1], "hospital_outcome_1alive_0dead": [0]})
+    inner = io.BytesIO()
+    with zipfile.ZipFile(inner, "w") as zi:
+        zi.writestr("s41598-020-73558-3_sepsis_survival_primary_cohort.csv", frame.to_csv(index=False))
+    path = tmp_path / "outer.zip"
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr("s41598-020-73558-3_sepsis_survival_dataset.zip", inner.getvalue())
+    cohort, counts = S.load(path)
+    assert counts["deaths"] == 1 and counts["file"].endswith("primary_cohort.csv")
