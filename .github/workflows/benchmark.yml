@@ -1,8 +1,8 @@
 name: Data and benchmark
 
-# Downloads the UCI archive (the build workspace cannot reach UCI), records or
-# verifies its checksum, runs the semi-synthetic benchmark and commits the
-# results. Run it by hand from the Actions tab.
+# Downloads the UCI archives (the build workspace cannot reach UCI), records or
+# verifies their checksums and licenses, runs each benchmark configuration as
+# its own job, then combines and commits the results. Run it from the Actions tab.
 on:
   workflow_dispatch:
     inputs:
@@ -21,49 +21,107 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  benchmark:
+  data:
     runs-on: ubuntu-latest
-    timeout-minutes: 240
     steps:
       - uses: actions/checkout@v4
+      - name: Fetch and verify archives
+        run: |
+          set -euo pipefail
+          fetch() {  # name, dataset page, zip url, manifest, archive path
+            local name=$1 page=$2 url=$3 manifest=$4 zip=$5
+            if [ ! -f "$zip" ]; then curl -fsSL --retry 3 -o "$zip" "$url"; fi
+            digest=$(sha256sum "$zip" | cut -d' ' -f1)
+            if [ -f "$manifest" ]; then
+              recorded=$(python -c "import json;print(json.load(open('$manifest'))['sha256'])")
+              test "$digest" = "$recorded" || { echo "$name checksum changed: $digest vs $recorded"; exit 1; }
+            else
+              curl -fsSL --retry 3 "$page" -o page.html
+              license=$(grep -o 'Creative Commons [A-Za-z0-9 .()]*license' page.html | head -1 || true)
+              if [ -z "$license" ]; then
+                id=$(echo "$page" | sed -E 's#.*/dataset/([0-9]+).*#\1#')
+                curl -fsSL --retry 3 "https://archive.ics.uci.edu/api/dataset?id=$id" -o api.json
+                license=$(grep -o 'Creative Commons [A-Za-z0-9 .()]*' api.json | head -1 || true)
+              fi
+              test -n "$license" || { echo "$name: no license statement found on the UCI page; refusing to use it"; exit 1; }
+              python - "$digest" "$url" "$page" "$license" "$manifest" <<'PY'
+          import datetime, json, sys
+          digest, url, page, license, manifest = sys.argv[1:]
+          json.dump({"source": url, "page": page, "license": license, "sha256": digest,
+                     "downloaded_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")},
+                    open(manifest, "w"), indent=2)
+          PY
+            fi
+            unzip -l "$zip"
+          }
+          fetch diabetes "https://archive.ics.uci.edu/dataset/296/diabetes+130-us+hospitals+for+years+1999-2008" \
+            "https://archive.ics.uci.edu/static/public/296/diabetes+130-us+hospitals+for+years+1999-2008.zip" \
+            data/manifest.json data/raw/diabetes_130_us_hospitals.zip
+          fetch sepsis "https://archive.ics.uci.edu/dataset/827/sepsis+survival+minimal+clinical+records" \
+            "https://archive.ics.uci.edu/static/public/827/sepsis+survival+minimal+clinical+records.zip" \
+            data/manifest_sepsis.json data/raw/sepsis_survival.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: data
+          path: data
+
+  benchmark:
+    needs: data
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        config: [diabetes-logistic, diabetes-gbm, sepsis-logistic, sepsis-gbm]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: data
+          path: data
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
       - name: Install project
         run: python -m pip install -e .
-      - name: Fetch UCI Diabetes 130-US Hospitals archive
+      - name: Run ${{ matrix.config }}
         run: |
-          zip=data/raw/diabetes_130_us_hospitals.zip
-          if [ ! -f "$zip" ]; then
-            curl -fsSL --retry 3 -o "$zip" \
-              "https://archive.ics.uci.edu/static/public/296/diabetes+130-us+hospitals+for+years+1999-2008.zip"
-          fi
-          digest=$(sha256sum "$zip" | cut -d' ' -f1)
-          if [ -f data/manifest.json ]; then
-            recorded=$(python -c "import json;print(json.load(open('data/manifest.json'))['sha256'])")
-            test "$digest" = "$recorded" || { echo "checksum changed: $digest vs $recorded"; exit 1; }
-          else
-            python - "$digest" <<'PY'
-          import json, sys, datetime
-          json.dump({"source": "https://archive.ics.uci.edu/static/public/296/diabetes+130-us+hospitals+for+years+1999-2008.zip",
-                     "doi": "10.24432/C5230J", "license": "CC BY 4.0",
-                     "sha256": sys.argv[1],
-                     "downloaded_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")},
-                    open("data/manifest.json", "w"), indent=2)
-          PY
-          fi
-          unzip -l "$zip"
-      - name: Run benchmark
+          python benchmarks/run_benchmark.py --config "${{ matrix.config }}" \
+            --replicates "${{ inputs.replicates }}" --n-boot "${{ inputs.n_boot }}" --workers "$(nproc)"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: results-${{ matrix.config }}
+          path: results/${{ matrix.config }}
+
+  combine:
+    needs: benchmark
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: data
+          path: data
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: results-*
+          path: downloaded
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Combine results
         run: |
-          python benchmarks/run_benchmark.py --replicates "${{ inputs.replicates }}" \
-            --n-boot "${{ inputs.n_boot }}" --workers "$(nproc)"
+          python -m pip install pandas numpy
+          rm -f results/benchmark_runs.csv results/example_*.csv
+          for d in downloaded/results-*; do cfg=${d#downloaded/results-}; rm -rf "results/$cfg"; mv "$d" "results/$cfg"; done
+          python benchmarks/aggregate.py
       - name: Commit data and results
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data results
+          git add -A data results
           git diff --cached --quiet && { echo "nothing to commit"; exit 0; }
-          git commit -m "Benchmark results from UCI Diabetes 130-US Hospitals"
+          git commit -m "Benchmark results: UCI Diabetes 130-US Hospitals and Sepsis Survival, two models"
           for i in 1 2 3; do git pull --rebase && git push && exit 0; sleep 5; done
           exit 1

@@ -14,7 +14,7 @@ from sklearn.preprocessing import StandardScaler
 from . import metrics as M
 from .sequential import control_limit, cusum_path, exact_z
 from .shift import psi
-from .weights import design, effective_sample_size, fit_propensity, ipw_weights
+from .weights import design, effective_sample_size, fit_propensity, fit_propensity_x, ipw_weights
 
 STABLE = "stable"
 DRIFT = "drift"
@@ -36,6 +36,7 @@ class MonitorConfig:
     cusum_k: float = 0.5
     n_boot: int = 200
     weight_floor: float = 0.02
+    bootstrap_refit: bool = True  # refit the treatment model in every bootstrap resample
     min_labelled: int = 1
     seed: int = 0
 
@@ -104,7 +105,8 @@ class Monitor:
             seen = log[log[c.window].isin(windows[: i + 1])]
             prop = fit_propensity(seen, c.score, c.treated, c.covariates)
             cur = log[log[c.window] == win]
-            rows.append(self._evaluate(win, cur, prop, rng))
+            prev = log[log[c.window].isin(windows[:i])]
+            rows.append(self._evaluate(win, cur, prop, rng, prev))
         table = pd.DataFrame(rows)
         # CounterSignal's CUSUM, plus the same rule applied to the two views a
         # standard monitor would use, for comparison.
@@ -117,7 +119,7 @@ class Monitor:
         return MonitorResult(table=table, config=c, ref_auc=self.ref_auc,
                              ref_oe=self.ref_oe, control_limit=self.limit)
 
-    def _evaluate(self, win, cur: pd.DataFrame, prop, rng) -> dict:
+    def _evaluate(self, win, cur: pd.DataFrame, prop, rng, prev: pd.DataFrame | None = None) -> dict:
         c = self.cfg
         out: dict = {"window": win, "n": len(cur), "n_treated": int(cur[c.treated].sum())}
         out["mean_score"] = float(cur[c.score].mean())
@@ -143,8 +145,26 @@ class Monitor:
         out["ess"] = effective_sample_size(w)
         out["weights_truncated"] = int(np.sum((a == 0) & (p0 < c.weight_floor)))
 
-        def stats(idx):
-            yy, pp, ww, mm, uu = y[idx], p[idx], w[idx], m0[idx], untreated[idx]
+        x_cur = design(lab, c.score, c.covariates)
+        if prev is not None and len(prev):
+            x_prev = design(prev, c.score, c.covariates)
+            a_prev = prev[c.treated].to_numpy(int)
+        else:
+            x_prev, a_prev = np.empty((0, x_cur.shape[1])), np.empty(0, int)
+        x_unlab = design(cur.drop(lab.index), c.score, c.covariates)
+        a_unlab = cur.drop(lab.index)[c.treated].to_numpy(int)
+
+        def refit_weights(idx):
+            """Weights from a treatment model refitted on a resample of every row it was fitted on."""
+            j = rng.integers(0, len(x_prev), len(x_prev)) if len(x_prev) else np.empty(0, int)
+            k = rng.integers(0, len(x_unlab), len(x_unlab)) if len(x_unlab) else np.empty(0, int)
+            fit = fit_propensity_x(np.vstack([x_prev[j], x_unlab[k], x_cur[idx]]),
+                                   np.concatenate([a_prev[j], a_unlab[k], a[idx]]), c.covariates)
+            return ipw_weights(a[idx], fit.p_untreated_x(x_cur[idx]), c.weight_floor)
+
+        def stats(idx, ww=None):
+            ww = w[idx] if ww is None else ww
+            yy, pp, mm, uu = y[idx], p[idx], m0[idx], untreated[idx]
             dr_rate = np.mean(mm + ww * (yy - mm))
             return {
                 "oe_naive": M.observed_expected(yy, pp),
@@ -160,7 +180,10 @@ class Monitor:
         point = stats(np.arange(len(y)))
         out.update(point)
         out["cal_intercept_ipw"], out["cal_slope_ipw"] = M.calibration_intercept_slope(y, p, w)
-        boots = [stats(rng.integers(0, len(y), len(y))) for _ in range(c.n_boot)]
+        boots = []
+        for _ in range(c.n_boot):
+            idx = rng.integers(0, len(y), len(y))
+            boots.append(stats(idx, refit_weights(idx) if c.bootstrap_refit else None))
         frame = pd.DataFrame(boots)
         for key in ("oe_naive", "auc_naive", "oe_untreated", "auc_untreated",
                     "oe_ipw", "auc_ipw", "oe_dr"):

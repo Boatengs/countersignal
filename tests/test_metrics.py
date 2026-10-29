@@ -30,3 +30,20 @@ def test_zero_weight_rows_are_ignored():
     w = np.array([1, 1, 0, 0])
     assert M.auc(y, p, w) == 1.0
     assert np.isnan(M.auc([1, 1], [0.2, 0.3]))
+
+
+def test_newton_logistic_matches_sklearn():
+    from sklearn.linear_model import LogisticRegression
+
+    from countersignal.weights import fit_logistic, predict_logistic
+
+    rng = np.random.default_rng(3)
+    x = rng.normal(size=(3000, 3)) * [1, 5, 0.2] + [0, 10, 1]
+    y = (rng.random(3000) < 1 / (1 + np.exp(-(0.4 + x[:, 0] - 0.1 * x[:, 1])))).astype(int)
+    ours = predict_logistic(*fit_logistic(x, y), x)
+    ref = LogisticRegression(penalty=None, max_iter=10000).fit(x, y).predict_proba(x)[:, 1]
+    def loglik(q):
+        return np.sum(y * np.log(q) + (1 - y) * np.log(1 - q))
+
+    assert loglik(ours) >= loglik(ref) - 1e-6  # at least as good a maximum
+    assert np.max(np.abs(ours - ref)) < 1e-3
