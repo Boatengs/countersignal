@@ -1,0 +1,28 @@
+name: Release
+
+# Creates the tag and GitHub release named in VERSION when it changes on main.
+on:
+  push:
+    branches: [main]
+    paths: ["VERSION"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create tag and release if missing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="v$(tr -d '[:space:]' < VERSION)"
+          notes="docs/releases/${version}.md"
+          if gh release view "$version" >/dev/null 2>&1; then
+            echo "$version already released"; exit 0
+          fi
+          test -f "$notes" || { echo "Missing $notes"; exit 1; }
+          gh release create "$version" --target "$GITHUB_SHA" \
+            --title "CounterSignal ${version}" --notes-file "$notes"
