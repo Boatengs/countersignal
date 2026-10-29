@@ -1,0 +1,321 @@
+{
+  "data": {
+    "encounters": 101766,
+    "patients": 71518,
+    "excluded_disposition_ids": [
+      11,
+      13,
+      14,
+      19,
+      20,
+      21
+    ],
+    "excluded_disposition_labels": [
+      "Expired",
+      "Hospice / home",
+      "Hospice / medical facility",
+      "Expired at home. Medicaid only, hospice.",
+      "Expired in a medical facility. Medicaid only, hospice.",
+      "Expired, place unknown. Medicaid only, hospice."
+    ],
+    "first_encounters": 71518,
+    "cohort": 69973,
+    "home_disposition_ids": [
+      1
+    ],
+    "readmitted_30d": 6277,
+    "readmission_rate": 0.08970602946850928,
+    "sha256": "f82ac129da2ddd2299391ff6fbae3a6a58b3edcf59ac9d7bd480c00fe453112a",
+    "source": "https://archive.ics.uci.edu/static/public/296/diabetes+130-us+hospitals+for+years+1999-2008.zip",
+    "citation": "Clore, J., Cios, K., DeShazo, J., & Strack, B. (2014). Diabetes 130-US Hospitals for Years 1999-2008 [Dataset]. UCI Machine Learning Repository. https://doi.org/10.24432/C5230J"
+  },
+  "split": {
+    "development": 20991,
+    "reference": 13995,
+    "pool": 34987
+  },
+  "model": {
+    "type": "logistic regression, standardized features",
+    "features": [
+      "time_in_hospital",
+      "num_lab_procedures",
+      "num_procedures",
+      "num_medications",
+      "number_outpatient",
+      "number_emergency",
+      "number_inpatient",
+      "number_diagnoses",
+      "age",
+      "female",
+      "emergency_admission",
+      "discharged_home",
+      "a1c_tested",
+      "med_change",
+      "diabetes_med",
+      "insulin",
+      "dx_circulatory",
+      "dx_respiratory",
+      "dx_digestive",
+      "dx_diabetes",
+      "dx_injury",
+      "dx_musculoskeletal",
+      "dx_genitourinary",
+      "dx_neoplasms"
+    ],
+    "coefficients": {
+      "time_in_hospital": 0.0721,
+      "num_lab_procedures": 0.0386,
+      "num_procedures": 0.0228,
+      "num_medications": -0.0092,
+      "number_outpatient": 0.003,
+      "number_emergency": 0.0284,
+      "number_inpatient": 0.2223,
+      "number_diagnoses": 0.0921,
+      "age": 0.0612,
+      "female": 0.0221,
+      "emergency_admission": 0.0407,
+      "discharged_home": -0.2709,
+      "a1c_tested": -0.0436,
+      "med_change": -0.0576,
+      "diabetes_med": 0.1578,
+      "insulin": -0.018,
+      "dx_circulatory": 0.0577,
+      "dx_respiratory": -0.074,
+      "dx_digestive": 0.0076,
+      "dx_diabetes": 0.0539,
+      "dx_injury": 0.0476,
+      "dx_musculoskeletal": -0.0131,
+      "dx_genitourinary": -0.0212,
+      "dx_neoplasms": 0.0375
+    },
+    "alert_threshold": 0.14117951686714136,
+    "reference_auc": 0.631045437770661,
+    "reference_oe": 1.0656114313978846,
+    "pool_auc": 0.6181842630738147,
+    "pool_oe": 0.9864763257223631
+  },
+  "simulation": {
+    "windows": 12,
+    "p_treat_alerted": 0.7,
+    "p_treat_other": 0.05,
+    "inpatient_log_odds_per_sd": 0.5,
+    "main_effect": 0.4,
+    "sensitivity_effects": [
+      0.2,
+      0.6
+    ],
+    "oe_band": [
+      0.8,
+      1.25
+    ],
+    "alpha": 0.05,
+    "propensity_covariates": [
+      "alerted",
+      "number_inpatient",
+      "age"
+    ],
+    "replicates": 200,
+    "n_boot": 200
+  },
+  "scenarios": {
+    "case_mix@0.4": {
+      "replicates": 200,
+      "label": "Sicker case mix from month 5, model unchanged",
+      "true_outside_band_windows_mean": 0.025,
+      "mean_ess": 775.9039610394003,
+      "naive": {
+        "any_alarm_rate": 1.0,
+        "oe_abs_error": 0.12406072242589947,
+        "oe_ci_coverage": 0.3841666666666667,
+        "false_drift_windows_mean": 0.23,
+        "missed_drift_windows_mean": 0.0,
+        "insufficient_windows_mean": 10.08,
+        "alarm_before_shift_rate": 0.33,
+        "detected_rate": 1.0,
+        "median_delay_windows": 0.0
+      },
+      "untreated_only": {
+        "any_alarm_rate": 0.125,
+        "oe_abs_error": 0.06724867708651452,
+        "oe_ci_coverage": 0.9654166666666666,
+        "false_drift_windows_mean": 0.0,
+        "missed_drift_windows_mean": 0.0,
+        "insufficient_windows_mean": 5.26,
+        "alarm_before_shift_rate": 0.015,
+        "detected_rate": 0.12,
+        "median_delay_windows": 5.0
+      },
+      "countersignal": {
+        "any_alarm_rate": 0.015,
+        "oe_abs_error": 0.10264434061784997,
+        "oe_ci_coverage": 0.9691666666666666,
+        "false_drift_windows_mean": 0.015,
+        "missed_drift_windows_mean": 0.0,
+        "insufficient_windows_mean": 10.95,
+        "alarm_before_shift_rate": 0.005,
+        "detected_rate": 0.015,
+        "median_delay_windows": 0.0
+      }
+    },
+    "high_risk_drift@0.4": {
+      "replicates": 200,
+      "label": "Readmissions rise among alerted patients from month 5",
+      "true_outside_band_windows_mean": 2.04,
+      "mean_ess": 1197.829481284796,
+      "naive": {
+        "any_alarm_rate": 0.645,
+        "oe_abs_error": 0.121761234388815,
+        "oe_ci_coverage": 0.6241666666666666,
+        "false_drift_windows_mean": 0.0,
+        "missed_drift_windows_mean": 0.49,
+        "insufficient_windows_mean": 4.595,
+        "alarm_before_shift_rate": 0.265,
+        "detected_rate": 0.57,
+        "median_delay_windows": 4.0
+      },
+      "untreated_only": {
+        "any_alarm_rate": 0.65,
+        "oe_abs_error": 0.09935612128552497,
+        "oe_ci_coverage": 0.8308333333333333,
+        "false_drift_windows_mean": 0.0,
+        "missed_drift_windows_mean": 0.2,
+        "insufficient_windows_mean": 5.35,
+        "alarm_before_shift_rate": 0.0,
+        "detected_rate": 0.65,
+        "median_delay_windows": 4.0
+      },
+      "countersignal": {
+        "any_alarm_rate": 0.975,
+        "oe_abs_error": 0.07911144231658436,
+        "oe_ci_coverage": 0.98125,
+        "false_drift_windows_mean": 0.005,
+        "missed_drift_windows_mean": 0.025,
+        "insufficient_windows_mean": 10.31,
+        "alarm_before_shift_rate": 0.0,
+        "detected_rate": 0.975,
+        "median_delay_windows": 2.0
+      }
+    },
+    "small_hospital@0.4": {
+      "replicates": 200,
+      "label": "Small hospital, 150 patients a month, model unchanged",
+      "true_outside_band_windows_mean": 4.48,
+      "mean_ess": 105.54854911931805,
+      "naive": {
+        "any_alarm_rate": 0.115,
+        "oe_abs_error": 0.07580767628009244,
+        "oe_ci_coverage": 0.9991666666666665,
+        "false_drift_windows_mean": 0.0,
+        "missed_drift_windows_mean": 0.0,
+        "insufficient_windows_mean": 11.76
+      },
+      "untreated_only": {
+        "any_alarm_rate": 0.065,
+        "oe_abs_error": 0.10313444332086828,
+        "oe_ci_coverage": 0.9991666666666668,
+        "false_drift_windows_mean": 0.005,
+        "missed_drift_windows_mean": 0.0,
+        "insufficient_windows_mean": 11.79
+      },
+      "countersignal": {
+        "any_alarm_rate": 0.03,
+        "oe_abs_error": 0.17398565571069027,
+        "oe_ci_coverage": 0.9945833333333333,
+        "false_drift_windows_mean": 0.01,
+        "missed_drift_windows_mean": 0.0,
+        "insufficient_windows_mean": 11.695
+      }
+    },
+    "stable@0.2": {
+      "replicates": 200,
+      "label": "Model unchanged, interventions on",
+      "true_outside_band_windows_mean": 0.02,
+      "mean_ess": 1207.1502544633563,
+      "naive": {
+        "any_alarm_rate": 0.515,
+        "oe_abs_error": 0.03737783609981786,
+        "oe_ci_coverage": 1.0,
+        "false_drift_windows_mean": 0.0,
+        "missed_drift_windows_mean": 0.0,
+        "insufficient_windows_mean": 4.795
+      },
+      "untreated_only": {
+        "any_alarm_rate": 0.065,
+        "oe_abs_error": 0.03483079158332483,
+        "oe_ci_coverage": 1.0,
+        "false_drift_windows_mean": 0.0,
+        "missed_drift_windows_mean": 0.0,
+        "insufficient_windows_mean": 4.65
+      },
+      "countersignal": {
+        "any_alarm_rate": 0.035,
+        "oe_abs_error": 0.06701683455001879,
+        "oe_ci_coverage": 0.99375,
+        "false_drift_windows_mean": 0.0,
+        "missed_drift_windows_mean": 0.0,
+        "insufficient_windows_mean": 9.325
+      }
+    },
+    "stable@0.4": {
+      "replicates": 200,
+      "label": "Model unchanged, interventions on",
+      "true_outside_band_windows_mean": 0.045,
+      "mean_ess": 1216.9018638566415,
+      "naive": {
+        "any_alarm_rate": 0.965,
+        "oe_abs_error": 0.07455647911516755,
+        "oe_ci_coverage": 0.98625,
+        "false_drift_windows_mean": 0.0,
+        "missed_drift_windows_mean": 0.0,
+        "insufficient_windows_mean": 7.405
+      },
+      "untreated_only": {
+        "any_alarm_rate": 0.1,
+        "oe_abs_error": 0.035574907917756596,
+        "oe_ci_coverage": 1.0,
+        "false_drift_windows_mean": 0.0,
+        "missed_drift_windows_mean": 0.0,
+        "insufficient_windows_mean": 4.845
+      },
+      "countersignal": {
+        "any_alarm_rate": 0.055,
+        "oe_abs_error": 0.06382238335329946,
+        "oe_ci_coverage": 0.9925,
+        "false_drift_windows_mean": 0.0,
+        "missed_drift_windows_mean": 0.0,
+        "insufficient_windows_mean": 9.245
+      }
+    },
+    "stable@0.6": {
+      "replicates": 200,
+      "label": "Model unchanged, interventions on",
+      "true_outside_band_windows_mean": 0.02,
+      "mean_ess": 1223.2555014797683,
+      "naive": {
+        "any_alarm_rate": 1.0,
+        "oe_abs_error": 0.11168579166573599,
+        "oe_ci_coverage": 0.7558333333333335,
+        "false_drift_windows_mean": 0.005,
+        "missed_drift_windows_mean": 0.0,
+        "insufficient_windows_mean": 9.62
+      },
+      "untreated_only": {
+        "any_alarm_rate": 0.09,
+        "oe_abs_error": 0.03573336660129908,
+        "oe_ci_coverage": 0.9991666666666665,
+        "false_drift_windows_mean": 0.0,
+        "missed_drift_windows_mean": 0.0,
+        "insufficient_windows_mean": 4.57
+      },
+      "countersignal": {
+        "any_alarm_rate": 0.05,
+        "oe_abs_error": 0.06433567012356786,
+        "oe_ci_coverage": 0.98875,
+        "false_drift_windows_mean": 0.0,
+        "missed_drift_windows_mean": 0.0,
+        "insufficient_windows_mean": 9.16
+      }
+    }
+  },
+  "runtime_seconds": 1175.6
+}
