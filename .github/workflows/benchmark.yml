@@ -30,29 +30,38 @@ jobs:
           set -euo pipefail
           fetch() {  # name, dataset page, zip url, manifest, archive path
             local name=$1 page=$2 url=$3 manifest=$4 zip=$5
-            if [ ! -f "$zip" ]; then curl -fsSL --retry 3 -o "$zip" "$url"; fi
+            if [ ! -f "$manifest" ]; then
+              code=$(curl -sSL --retry 3 -o page.html -w '%{http_code}' "$page" || true)
+              echo "::notice::$name page HTTP $code, $(wc -c < page.html) bytes"
+              linked=$(grep -o 'static/public/[0-9]*/[^"]*\.zip' page.html | head -1 || true)
+              echo "::notice::$name zip linked on page: ${linked:-none}"
+              if [ -n "$linked" ]; then url="https://archive.ics.uci.edu/$linked"; fi
+              license=$(grep -o -i 'licensed under a[^<]*' page.html | head -1 || true)
+              if [ -z "$license" ]; then
+                license=$(grep -o -i 'creative commons[^<"]*' page.html | head -1 || true)
+              fi
+              echo "::notice::$name license text: ${license:-none found}"
+              test -n "$license" || { echo "::error::$name: no license statement found on the UCI page; refusing to use it"; exit 1; }
+            fi
+            if [ ! -f "$zip" ]; then
+              code=$(curl -sSL --retry 3 -o "$zip" -w '%{http_code}' "$url" || true)
+              echo "::notice::$name archive HTTP $code from $url"
+              test "$code" = "200" || { echo "::error::$name download failed ($code)"; exit 1; }
+            fi
             digest=$(sha256sum "$zip" | cut -d' ' -f1)
             if [ -f "$manifest" ]; then
               recorded=$(python -c "import json;print(json.load(open('$manifest'))['sha256'])")
-              test "$digest" = "$recorded" || { echo "$name checksum changed: $digest vs $recorded"; exit 1; }
+              test "$digest" = "$recorded" || { echo "::error::$name checksum changed: $digest vs $recorded"; exit 1; }
             else
-              curl -fsSL --retry 3 "$page" -o page.html
-              license=$(grep -o 'Creative Commons [A-Za-z0-9 .()]*license' page.html | head -1 || true)
-              if [ -z "$license" ]; then
-                id=$(echo "$page" | sed -E 's#.*/dataset/([0-9]+).*#\1#')
-                curl -fsSL --retry 3 "https://archive.ics.uci.edu/api/dataset?id=$id" -o api.json
-                license=$(grep -o 'Creative Commons [A-Za-z0-9 .()]*' api.json | head -1 || true)
-              fi
-              test -n "$license" || { echo "$name: no license statement found on the UCI page; refusing to use it"; exit 1; }
               python - "$digest" "$url" "$page" "$license" "$manifest" <<'PY'
           import datetime, json, sys
           digest, url, page, license, manifest = sys.argv[1:]
-          json.dump({"source": url, "page": page, "license": license, "sha256": digest,
+          json.dump({"source": url, "page": page, "license": license.strip(), "sha256": digest,
                      "downloaded_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")},
                     open(manifest, "w"), indent=2)
           PY
             fi
-            unzip -l "$zip"
+            echo "::notice::$name members: $(unzip -Z1 "$zip" | tr '\n' ' ')"
           }
           fetch diabetes "https://archive.ics.uci.edu/dataset/296/diabetes+130-us+hospitals+for+years+1999-2008" \
             "https://archive.ics.uci.edu/static/public/296/diabetes+130-us+hospitals+for+years+1999-2008.zip" \
