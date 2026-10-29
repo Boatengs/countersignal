@@ -52,6 +52,7 @@ DATASETS = {
         manifest="data/manifest.json", outcome="30 day readmission",
         driver="number_inpatient", driver_label="prior inpatient stays",
         covariates=["alerted", "number_inpatient", "age"], n=2000, n_small=150,
+        hidden="number_emergency", hidden_label="prior emergency visits",
         case_mix=lambda f: np.exp(0.6 * np.minimum(f["number_inpatient"].to_numpy(float), 6)),
         case_mix_label="Sicker case mix (more prior inpatient stays) from month 5, model unchanged"),
     "sepsis": dict(
@@ -59,6 +60,7 @@ DATASETS = {
         manifest="data/manifest_sepsis.json", outcome="in hospital death",
         driver="age_years", driver_label="age",
         covariates=["alerted", "age_years", "episode_number"], n=3000, n_small=200,
+        hidden="episode_number", hidden_label="number of prior sepsis episodes",
         case_mix=lambda f: np.exp(0.04 * (f["age_years"].to_numpy(float) - 60)),
         case_mix_label="Older case mix from month 5, model unchanged"),
 }
@@ -70,8 +72,11 @@ CONFIGS = {
     "sepsis-gbm": dict(dataset="sepsis", model="gbm", effects=(0.4,)),
 }
 
-SCENARIOS = ["stable", "case_mix", "high_risk_drift", "small_hospital"]
-SHIFT_FROM = {"stable": None, "case_mix": 4, "high_risk_drift": 4, "small_hospital": None}
+SCENARIOS = ["stable", "case_mix", "high_risk_drift", "small_hospital", "hidden_confounder"]
+SHIFT_FROM = {"stable": None, "case_mix": 4, "high_risk_drift": 4, "small_hospital": None,
+              "hidden_confounder": None}
+DRIFT_TARGET_OE = 1.35  # drift is sized so the true O/E after the change reaches this value
+RUN_IN = 6  # months of untreated data used to calibrate the Feng et al. monitor
 
 METHODS = {"naive": "_naive", "untreated_only": "_untreated", "countersignal": ""}
 OE_KEYS = {"naive": "oe_naive", "untreated_only": "oe_untreated", "countersignal": "oe_ipw"}
@@ -92,6 +97,8 @@ def scenario_label(dataset: str, scenario: str) -> str:
         "case_mix": d["case_mix_label"],
         "high_risk_drift": "Outcome risk rises among alerted patients from month 5",
         "small_hospital": f"Small hospital, {n} patients a month, model unchanged",
+        "hidden_confounder": f"Model unchanged; treatment also depends on {d['hidden_label']}, "
+                             "which the monitor does not see",
     }[scenario]
 
 
@@ -122,13 +129,17 @@ def prepare(config: str, seed: int = 2026) -> dict:
     for frame in (ref, pool):
         frame["alerted"] = (frame["score"] >= cut).astype(int)
     driver = d["driver"]
-    return {"config": config, "dataset": spec["dataset"], "model": spec["model"], "counts": counts,
+    hidden = d["hidden"]
+    prep = {"config": config, "dataset": spec["dataset"], "model": spec["model"], "counts": counts,
             "dev_n": len(dev), "ref": ref.reset_index(drop=True), "pool": pool.reset_index(drop=True),
             "features": features, "alert_cut": cut,
-            "driver": (driver, float(ref[driver].mean()), float(ref[driver].std()))}
+            "driver": (driver, float(ref[driver].mean()), float(ref[driver].std())),
+            "hidden": (hidden, float(ref[hidden].mean()), float(ref[hidden].std()))}
+    prep["drift_k"] = drift_weight(prep)
+    return prep
 
 
-def row_probabilities(prep: dict, scenario: str, active: bool) -> np.ndarray:
+def row_probabilities(prep: dict, scenario: str, active: bool, k: float | None = None) -> np.ndarray:
     """Probability that each pool row is drawn into a window: the window's population."""
     pool = prep["pool"]
     n = len(pool)
@@ -141,10 +152,27 @@ def row_probabilities(prep: dict, scenario: str, active: bool) -> np.ndarray:
     positive = pool["outcome"].to_numpy() == 1
     share = alerted.mean()
     q = np.zeros(n)
-    wa = np.where(positive[alerted], 3.0, 1.0)
+    wa = np.where(positive[alerted], prep.get("drift_k", 3.0) if k is None else k, 1.0)
     q[alerted] = share * wa / wa.sum()
     q[~alerted] = (1 - share) / (~alerted).sum()
     return q
+
+
+def drift_weight(prep: dict, target: float = DRIFT_TARGET_OE) -> float:
+    """Weight on events among alerted patients that moves the population O/E to the target."""
+    y, s = prep["pool"]["outcome"].to_numpy(float), prep["pool"]["score"].to_numpy(float)
+
+    def oe(k):
+        q = row_probabilities(prep, "high_risk_drift", True, k)
+        return np.sum(q * y) / np.sum(q * s)
+
+    lo, hi = 1.0, 200.0
+    if oe(hi) < target:
+        raise ValueError(f"cannot reach O/E {target} by reweighting alerted events")
+    for _ in range(80):
+        mid = (lo + hi) / 2
+        lo, hi = (mid, hi) if oe(mid) < target else (lo, mid)
+    return (lo + hi) / 2
 
 
 def population_truth(prep: dict, scenario: str) -> dict:
@@ -158,81 +186,87 @@ def population_truth(prep: dict, scenario: str) -> dict:
 
 
 def sample_window(prep, scenario, active, n, rng):
-    pool = prep["pool"]
-    if active and scenario == "high_risk_drift":
-        idx = np.arange(len(pool))
-        alerted = pool["alerted"].to_numpy() == 1
-        positive = pool["outcome"].to_numpy() == 1
-        n_alert = int(round(alerted.mean() * n))
-        w = np.where(positive[alerted], 3.0, 1.0)
-        pick_a = rng.choice(idx[alerted], n_alert, replace=False, p=w / w.sum())
-        pick_b = rng.choice(idx[~alerted], n - n_alert, replace=False)
-        return np.concatenate([pick_a, pick_b])
+    """Draw n patients with replacement from the window's population, so the truth is exact."""
     q = row_probabilities(prep, scenario, active)
-    return rng.choice(len(pool), n, replace=False, p=q)
+    return rng.choice(len(prep["pool"]), n, replace=True, p=q)
 
 
-def simulate(prep, scenario, rng, effect=0.4, p_alert=0.7, p_other=0.05, driver_effect=0.5):
-    """One deployment. Each window draws distinct patients; a patient can recur across windows."""
+def simulate(prep, scenario, rng, effect=0.4, p_alert=0.7, p_other=0.05, driver_effect=0.5,
+             hidden_effect=1.0, windows=WINDOWS, run_in=False):
+    """One deployment (or, with run_in, months before monitoring starts, with no change)."""
     d = DATASETS[prep["dataset"]]
     n = d["n_small"] if scenario == "small_hospital" else d["n"]
     col, mean, sd = prep["driver"]
+    hcol, hmean, hsd = prep["hidden"]
     frames = []
-    for t in range(WINDOWS):
-        active = SHIFT_FROM[scenario] is not None and t >= SHIFT_FROM[scenario]
+    for t in range(windows):
+        active = (not run_in) and SHIFT_FROM[scenario] is not None and t >= SHIFT_FROM[scenario]
         w = prep["pool"].loc[sample_window(prep, scenario, active, n, rng)].copy()
         base = np.where(w["alerted"] == 1, p_alert, p_other)
         logit = np.log(base / (1 - base)) + driver_effect * (w[col] - mean) / sd
+        if scenario == "hidden_confounder":
+            logit = logit + hidden_effect * (w[hcol] - hmean) / hsd
         w["treated"] = (rng.random(len(w)) < _sigmoid(logit)).astype(int)
         prevented = w["treated"].to_numpy() * (rng.random(len(w)) < effect)
         w["y0"] = w["outcome"]
         w["outcome"] = w["y0"] * (1 - prevented)
-        w["window"] = f"M{t + 1:02d}"
+        w["window"] = f"R{t + 1:02d}" if run_in else f"M{t + 1:02d}"
         w["active"] = active
         frames.append(w)
     return pd.concat(frames, ignore_index=True)
 
 
-def feng_alarms(prep, log, covariates, seed) -> list[bool]:
-    """Alarm path of the Feng et al. score based CUSUM on untreated patients."""
+def feng_alarms(calib: pd.DataFrame, log: pd.DataFrame, covariates, seed) -> list[bool]:
+    """First-alarm path of the Feng et al. score based CUSUM on untreated patients."""
     def feats(frame):
         s = frame["score"].to_numpy(float)
         return np.column_stack([np.log(s / (1 - s)), *(frame[c].to_numpy(float) for c in covariates)])
 
     mon = FengScoreCUSUM(horizon=WINDOWS, alpha=0.05, seed=seed)
-    mon.start(feats(prep["ref"]), prep["ref"]["outcome"].to_numpy(float))
+    mon.start(feats(calib), calib["outcome"].to_numpy(float))
     alarms = []
-    for _, g in log.groupby("window", sort=False):
+    for _, g in log.groupby("window", sort=True):
         u = g[g["treated"] == 0]
         alarms.append(mon.update(feats(u), u["outcome"].to_numpy(float))["alarm"] or mon.alarmed)
     return alarms
 
 
+def first_alarm(alarms: np.ndarray):
+    hits = np.flatnonzero(alarms)
+    return int(hits[0]) if len(hits) else None
+
+
 def one_run(args):
     prep, scenario, seed, effect, n_boot, truth = args
     d = DATASETS[prep["dataset"]]
-    rng = np.random.default_rng(seed)
+    sim_ss, mon_ss, feng_ss = np.random.SeedSequence(seed).spawn(3)
+    rng = np.random.default_rng(sim_ss)
     log = simulate(prep, scenario, rng, effect=effect)
-    cfg = MonitorConfig(covariates=d["covariates"], horizon=WINDOWS, n_boot=n_boot, seed=seed)
-    ref = prep["ref"][["score", "outcome", *d["covariates"]]]
+    run_in = simulate(prep, scenario, rng, effect=effect, windows=RUN_IN, run_in=True)
+    covariates = [c for c in d["covariates"] if scenario != "hidden_confounder" or c != d["hidden"]]
+    cfg = MonitorConfig(covariates=covariates, horizon=WINDOWS, n_boot=n_boot,
+                        seed=int(mon_ss.generate_state(1)[0]))
+    ref = prep["ref"][["score", "outcome", *covariates]]
     table = Monitor(ref, cfg).run(log).table
-    active = log.groupby("window", sort=False)["active"].first().to_numpy()
+    active = log.groupby("window", sort=True)["active"].first().to_numpy()
     table["true_oe"] = [truth[a]["oe"] for a in active]
     table["true_auc"] = [truth[a]["auc"] for a in active]
     table["true_outside_band"] = (table["true_oe"] < BAND[0]) | (table["true_oe"] > BAND[1])
-    table["cusum_alarm_feng"] = feng_alarms(prep, log, d["covariates"], seed)
+    feng_seed = int(feng_ss.generate_state(1)[0])
+    table["cusum_alarm_feng"] = feng_alarms(run_in[run_in["treated"] == 0], log, covariates, feng_seed)
+    table["cusum_alarm_feng_ref"] = feng_alarms(prep["ref"], log, covariates, feng_seed)
     shift_from = SHIFT_FROM[scenario]
     summary = {"config": prep["config"], "scenario": scenario, "seed": seed, "effect": effect,
                "mean_ess": float(table["ess"].mean()),
                "true_outside_band_windows": int(table["true_outside_band"].sum())}
-    for method, suffix in {**METHODS, "feng": "_feng"}.items():
-        alarms = table[f"cusum_alarm{suffix}"].to_numpy(bool)
-        summary[f"{method}_any_alarm"] = bool(alarms.any())
+    for method, suffix in {**METHODS, "feng": "_feng", "feng_ref": "_feng_ref"}.items():
+        first = first_alarm(table[f"cusum_alarm{suffix}"].to_numpy(bool))
+        summary[f"{method}_any_alarm"] = first is not None
         if shift_from is not None:
-            summary[f"{method}_alarm_before_shift"] = bool(alarms[:shift_from].any())
-            post = alarms[shift_from:]
-            summary[f"{method}_delay"] = int(np.argmax(post)) if post.any() else None
-        if method == "feng":
+            summary[f"{method}_alarm_before_shift"] = first is not None and first < shift_from
+            caught = first is not None and first >= shift_from
+            summary[f"{method}_delay"] = first - shift_from if caught else None
+        if method.startswith("feng"):
             continue
         key = OE_KEYS[method]
         summary[f"{method}_oe_abs_error"] = float(np.mean(np.abs(table[key] - table["true_oe"])))
@@ -300,6 +334,9 @@ def main():
                        "p_treat_alerted": 0.7, "p_treat_other": 0.05,
                        "treatment_driver": d["driver_label"], "driver_log_odds_per_sd": 0.5,
                        "effects": list(CONFIGS[args.config]["effects"]), "oe_band": list(BAND),
+                       "hidden_confounder": d["hidden_label"], "hidden_log_odds_per_sd": 1.0,
+                       "drift_target_oe": DRIFT_TARGET_OE, "drift_event_weight": prep["drift_k"],
+                       "feng_run_in_months": RUN_IN, "sampling": "with replacement within each month",
                        "alpha": 0.05, "propensity_covariates": d["covariates"],
                        "replicates": args.replicates, "n_boot": args.n_boot},
         "runtime_seconds": round(time.time() - start, 1),

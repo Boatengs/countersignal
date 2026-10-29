@@ -1,7 +1,7 @@
 """One simulated deployment, month by month."""
 
 import streamlit as st
-from common import COUNTER, cusum_chart, example, footnote, oe_chart, page_setup, summary
+from common import COUNTER, cusum_chart, example, footnote, oe_chart, page_setup, pick_config, summary
 
 from countersignal.sequential import control_limit
 
@@ -13,10 +13,13 @@ if s is None:
     st.info("Benchmark results are not in this build yet.")
     st.stop()
 
-options = {k.split("@")[0]: v["label"] for k, v in s["scenarios"].items()
-           if float(k.split("@")[1]) == s["simulation"]["main_effect"]}
+config = pick_config(s)
+c = s["configs"][config]
+main = c["simulation"]["effects"][0]
+options = {k.split("@")[0]: v["label"] for k, v in c["scenarios"].items()
+           if float(k.split("@")[1]) == main}
 scenario = st.radio("Scenario", list(options), format_func=options.get, horizontal=False)
-table = example(scenario)
+table = example(config, scenario)
 if table is None:
     st.warning("No example run saved for this scenario.")
     st.stop()
@@ -25,14 +28,18 @@ st.markdown("The first simulated deployment of each scenario, shown as run rathe
             "for its result. Each month draws new "
             "patients from the held out pool.")
 st.subheader("Is the model still calibrated?")
-st.plotly_chart(oe_chart(table, tuple(s["simulation"]["oe_band"])), width="stretch")
-footnote("Observed over expected readmissions for the outcome the model predicts, readmission "
+st.plotly_chart(oe_chart(table, tuple(c["simulation"]["oe_band"])), width="stretch")
+footnote("Observed over expected events for the outcome the model predicts, the outcome "
          "without the intervention. The dotted line is the truth, known only because this is a "
          "benchmark. The grey line counts every patient's observed outcome, so prevented "
-         "readmissions make the model look like it over-predicts.")
+         "events make the model look like it over predicts.")
 
 st.subheader("Cumulative alarm")
-st.plotly_chart(cusum_chart(table, control_limit(12, s["simulation"]["alpha"])), width="stretch")
+st.plotly_chart(cusum_chart(table, control_limit(12, c["simulation"]["alpha"])), width="stretch")
+if "cusum_alarm_feng" in table:
+    fired = table.loc[table["cusum_alarm_feng"].astype(bool), "window"]
+    st.caption("Feng et al. score CUSUM (separate statistic and limit): "
+               + (f"first alarm in {fired.iloc[0]}." if len(fired) else "no alarm in this deployment."))
 footnote("Each month adds evidence; the alarm fires when a line crosses the limit. The limit is "
          "set by simulation so that a calibrated model triggers any alarm in 12 months only 5% "
          "of the time.")
@@ -47,6 +54,6 @@ st.dataframe(view.rename(columns={
     "oe_verdict": "CounterSignal verdict", "auc_ipw": "CounterSignal AUC", "true_auc": "True AUC",
     "ess": "Effective untreated sample"}).round(3), hide_index=True, width="stretch")
 st.markdown(f"<span style='color:{COUNTER}'>■</span> Verdicts use an acceptable O/E range of "
-            f"{s['simulation']['oe_band'][0]} to {s['simulation']['oe_band'][1]}: **stable** when "
+            f"{c['simulation']['oe_band'][0]} to {c['simulation']['oe_band'][1]}: **stable** when "
             "the whole interval is inside it, **drift** when the whole interval is outside it, and "
             "**not enough evidence yet** otherwise.", unsafe_allow_html=True)

@@ -20,7 +20,8 @@ def test_ipw_recovers_untreated_performance_when_naive_does_not():
     assert row.auc_ipw == pytest.approx(M.auc(log.y0, log.score), abs=0.01)
     assert row.auc_naive < M.auc(log.y0, log.score) - 0.01
     assert row.oe_verdict == STABLE
-    assert row.naive_oe_verdict != STABLE
+    assert row.oe_naive_hi < true_oe  # the naive interval excludes the truth
+    assert row.oe_ipw_lo <= true_oe <= row.oe_ipw_hi
 
 
 def test_untreated_only_misses_drift_in_the_patients_who_get_treated():
@@ -50,7 +51,9 @@ def test_small_windows_give_honest_uncertainty():
     ref, log = make_deployment(n_per_window=120, windows=6, seed=6)
     res = Monitor(ref, MonitorConfig(**CFG)).run(log)
     assert (res.table.oe_verdict == INSUFFICIENT).sum() >= 4
-    assert res.table.oe_cases_needed.notna().any()
+    assert res.table.oe_window_needed_patients.notna().any()
+    need = res.table.dropna(subset=["oe_window_needed_patients"])
+    assert (need.oe_window_needed_patients > need.n).all()  # a bigger window than this month
 
 
 def test_exact_z_is_standard_normal_under_null_even_when_small():
@@ -82,3 +85,51 @@ def test_awaiting_outcomes_window():
     t = Monitor(ref, MonitorConfig(**CFG)).run(log).table
     assert t.iloc[2].oe_verdict == "awaiting outcomes"
     assert not np.isnan(t.iloc[2].score_psi)
+
+
+def test_windows_are_processed_in_time_order_whatever_the_row_order():
+    ref, log = make_deployment(n_per_window=400, windows=4, seed=12)
+    shuffled = log.sample(frac=1.0, random_state=0)
+    a = Monitor(ref, MonitorConfig(**CFG)).run(log).table
+    b = Monitor(ref, MonitorConfig(**CFG)).run(shuffled).table
+    assert list(b.window) == ["W01", "W02", "W03", "W04"]
+    assert np.allclose(a.oe_ipw, b.oe_ipw)
+
+
+def test_all_treated_window_reports_positivity_failure():
+    from countersignal.monitor import NO_UNTREATED
+    from countersignal.report import to_markdown
+    ref, log = make_deployment(n_per_window=300, windows=2, seed=13)
+    log.loc[log.window == "W02", "treated"] = 1
+    res = Monitor(ref, MonitorConfig(**CFG)).run(log)
+    assert res.table.iloc[1].oe_verdict == NO_UNTREATED
+    assert "nan" not in to_markdown(res).lower()
+
+
+def test_partly_recorded_window_waits_for_outcomes():
+    ref, log = make_deployment(n_per_window=300, windows=2, seed=14)
+    idx = log.index[log.window == "W02"][:50]
+    log.loc[idx, "outcome"] = np.nan
+    assert Monitor(ref, MonitorConfig(**CFG)).run(log).table.iloc[1].oe_verdict == "awaiting outcomes"
+
+
+def test_invalid_inputs_fail_clearly():
+    ref, log = make_deployment(n_per_window=200, windows=1, seed=15)
+    bad = log.copy()
+    bad.loc[bad.index[0], "treated"] = np.nan
+    with pytest.raises(ValueError, match="missing values"):
+        Monitor(ref, MonitorConfig(**CFG)).run(bad)
+    with pytest.raises(ValueError, match="n_boot"):
+        Monitor(ref, MonitorConfig(**{**CFG, "n_boot": 5}))
+
+
+def test_end_to_end_false_alarm_rate_of_monitor():
+    """Whole pipeline (estimated weights, exact null, CUSUM) under no change: planned 5%."""
+    alarms = 0
+    reps = 40
+    for r in range(reps):
+        ref, log = make_deployment(n_per_window=800, windows=6, seed=1000 + r)
+        cfg = MonitorConfig(covariates=["x1", "x2", "alerted"], n_boot=20, horizon=6, seed=r,
+                            bootstrap_refit=False)
+        alarms += Monitor(ref, cfg).run(log).first_alarm is not None
+    assert alarms / reps <= 0.15

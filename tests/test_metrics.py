@@ -41,9 +41,18 @@ def test_newton_logistic_matches_sklearn():
     x = rng.normal(size=(3000, 3)) * [1, 5, 0.2] + [0, 10, 1]
     y = (rng.random(3000) < 1 / (1 + np.exp(-(0.4 + x[:, 0] - 0.1 * x[:, 1])))).astype(int)
     ours = predict_logistic(*fit_logistic(x, y), x)
-    ref = LogisticRegression(penalty=None, max_iter=10000).fit(x, y).predict_proba(x)[:, 1]
+    ref = LogisticRegression(C=np.inf, max_iter=10000).fit(x, y).predict_proba(x)[:, 1]
     def loglik(q):
         return np.sum(y * np.log(q) + (1 - y) * np.log(1 - q))
 
     assert loglik(ours) >= loglik(ref) - 1e-6  # at least as good a maximum
     assert np.max(np.abs(ours - ref)) < 1e-3
+
+
+def test_psi_sees_shifts_in_binary_and_discrete_variables():
+    from countersignal.shift import psi
+    ref = np.r_[np.ones(100), np.zeros(900)]
+    cur = np.r_[np.ones(600), np.zeros(400)]
+    assert psi(ref, ref) == pytest.approx(0.0, abs=1e-9)
+    assert psi(ref, cur) > 0.5
+    assert psi(np.arange(1000) % 3, np.zeros(500)) > 0.5

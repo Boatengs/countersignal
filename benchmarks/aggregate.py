@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
-METHODS = ["naive", "untreated_only", "countersignal", "feng"]
+METHODS = ["naive", "untreated_only", "countersignal", "feng", "feng_ref"]
 
 
 def _clean(obj):
@@ -42,7 +42,7 @@ def summarize(runs: pd.DataFrame, meta: dict) -> dict:
                     m["alarm_month_iqr"] = [float(months.quantile(0.25)), float(months.quantile(0.75))]
                 else:
                     m["median_alarm_month"] = None
-            if method != "feng":
+            if not method.startswith("feng"):
                 for key in ("oe_abs_error", "oe_ci_coverage", "false_drift_windows",
                             "missed_drift_windows", "insufficient_windows"):
                     m[key] = float(g[f"{method}_{key}"].mean())
@@ -67,7 +67,9 @@ def main(results: Path = ROOT / "results") -> None:
         "naive": "Standard monitor: predictions against every patient's recorded outcome",
         "untreated_only": "Untreated patients only, no reweighting",
         "countersignal": "CounterSignal: inverse probability weighted untreated patients",
-        "feng": "Score based CUSUM of Feng et al. on untreated patients (independent implementation)"}}
+        "feng": "Score based CUSUM of Feng et al. on untreated patients, calibrated on a run-in "
+                "under the deployment policy (independent implementation)",
+        "feng_ref": "The same Feng et al. monitor calibrated on the pre-deployment reference data"}}
     (results / "benchmark_summary.json").write_text(json.dumps(_clean(out), indent=2))
     print(f"wrote summary for {len(configs)} configurations")
 

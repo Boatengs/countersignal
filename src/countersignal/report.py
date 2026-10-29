@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from .monitor import AWAITING, DRIFT, INSUFFICIENT, STABLE, MonitorResult
+from .monitor import AWAITING, DRIFT, INSUFFICIENT, NO_UNTREATED, STABLE, MonitorResult
 from .shift import psi_label
 
 
@@ -17,7 +17,11 @@ def window_summary(row: pd.Series, result: MonitorResult) -> dict:
     band = result.config.oe_band
     lines = []
     status = row.get("oe_verdict", AWAITING)
-    if status == AWAITING:
+    if status == NO_UNTREATED:
+        headline = "No untreated patients"
+        lines.append(f"All {int(row['n'])} patients were treated, so the untreated outcome cannot "
+                     "be estimated this month (positivity failure).")
+    elif status == AWAITING:
         headline = "Waiting for outcomes"
         lines.append(f"{int(row['n'])} patients scored; their outcomes are not recorded yet.")
     else:
@@ -33,9 +37,11 @@ def window_summary(row: pd.Series, result: MonitorResult) -> dict:
             f"Corrected for treatment, {abs(oe - 1):.0%} {direction} events than the model "
             f"predicted (observed/expected {oe:.2f}, 95% interval {lo:.2f} to {hi:.2f}; "
             f"acceptable range {band[0]:.2f} to {band[1]:.2f}).")
-        if status == INSUFFICIENT and not np.isnan(row.get("oe_cases_needed", np.nan)):
-            lines.append(f"About {int(row['oe_cases_needed']):,} effectively untreated patients "
-                         "would settle it if the estimate holds.")
+        needed = row.get("oe_window_needed_patients", np.nan)
+        if status == INSUFFICIENT and not pd.isna(needed):
+            lines.append(f"If the estimate holds, a month of about {int(needed):,} patients (this "
+                         f"month had {int(row['n']):,}) would make the interval reach the edge of "
+                         "the acceptable range, which settles the question about half the time.")
         naive = row.get("naive_oe_verdict")
         if naive is not None and naive != status:
             lines.append(f"A monitor that ignored treatment would have said: {naive} "

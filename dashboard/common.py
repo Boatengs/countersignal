@@ -21,7 +21,12 @@ UNTREATED = "#b45309"
 COUNTER = "#0f766e"
 METHOD_LABELS = {"naive": "Standard monitor (all patients)",
                  "untreated_only": "Untreated patients only",
+                 "feng": "Feng et al. score CUSUM",
                  "countersignal": "CounterSignal"}
+CONFIG_LABELS = {"diabetes-logistic": "Diabetes readmission · logistic regression",
+                 "diabetes-gbm": "Diabetes readmission · gradient boosting",
+                 "sepsis-logistic": "Sepsis mortality · logistic regression",
+                 "sepsis-gbm": "Sepsis mortality · gradient boosting"}
 
 
 def page_setup(title: str) -> None:
@@ -30,13 +35,26 @@ def page_setup(title: str) -> None:
 
 @st.cache_data
 def summary() -> dict | None:
+    """Benchmark summary, or None if this build has no results in the current format."""
     path = RESULTS / "benchmark_summary.json"
-    return json.loads(path.read_text()) if path.exists() else None
+    if not path.exists():
+        return None
+    data = json.loads(path.read_text())
+    return data if "configs" in data else None
+
+
+def pick_config(s: dict, key: str = "config") -> str:
+    names = [c for c in CONFIG_LABELS if c in s["configs"]]
+    return st.selectbox("Dataset and model", names, format_func=CONFIG_LABELS.get, key=key)
+
+
+def pct(x) -> str:
+    return "n/a" if x is None else f"{x * 100:.1f}%"
 
 
 @st.cache_data
-def example(scenario: str) -> pd.DataFrame | None:
-    path = RESULTS / f"example_{scenario}.csv"
+def example(config: str, scenario: str) -> pd.DataFrame | None:
+    path = RESULTS / config / f"example_{scenario}.csv"
     return pd.read_csv(path) if path.exists() else None
 
 
