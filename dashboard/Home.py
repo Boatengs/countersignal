@@ -35,32 +35,53 @@ st.markdown(
 
 
 def pct(x):
-    return "n/a" if x is None else f"{x:.0%}"
+    return "n/a" if x is None else f"{x * 100:.1f}%"
 
 
+main = sim["main_effect"]
+sc = {k.split("@")[0]: v for k, v in s["scenarios"].items() if float(k.split("@")[1]) == main}
+cols = list(METHOD_LABELS.values())
+
+st.markdown("**False alarms when the model has not changed** (share of 12 month deployments with "
+            "any cumulative alarm; planned rate 5%)")
 rows = []
-for key, entry in s["scenarios"].items():
-    scenario, effect = key.split("@")
-    if float(effect) != sim["main_effect"]:
-        continue
-    for method, label in METHOD_LABELS.items():
-        e = entry[method]
-        rows.append({
-            "Scenario": entry["label"], "Method": label,
-            "Any alarm in 12 months": pct(e["any_alarm_rate"]),
-            "Alarm before the change": pct(e.get("alarm_before_shift_rate")),
-            "Caught the change": pct(e.get("detected_rate")),
-            "Months to alarm (median)": ("n/a" if e.get("median_delay_windows") is None
-                                         else f"{e['median_delay_windows'] + 1:.0f}"),
-            "Mean error in O/E": f"{e['oe_abs_error']:.3f}",
-            "Interval covers truth": pct(e["oe_ci_coverage"]),
-        })
+for key in ("stable", "case_mix", "small_hospital"):
+    if key in sc:
+        rows.append({"Scenario": sc[key]["label"],
+                     **{METHOD_LABELS[m]: pct(sc[key][m]["any_alarm_rate"]) for m in METHOD_LABELS}})
 st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+
+if "high_risk_drift" in sc:
+    d = sc["high_risk_drift"]
+    st.markdown(f"**Detecting real drift:** {d['label'].lower()}")
+    measures = [
+        ("Deployments where the change was caught", lambda e: pct(e["detected_rate"])),
+        ("False alarm before the change began", lambda e: pct(e["alarm_before_shift_rate"])),
+        ("Median month of first alarm after the change",
+         lambda e: "n/a" if e["median_delay_windows"] is None else f"{e['median_delay_windows'] + 1:.0f}"),
+    ]
+    st.dataframe(pd.DataFrame([{"Measure": name, **{METHOD_LABELS[m]: f(d[m]) for m in METHOD_LABELS}}
+                               for name, f in measures]), hide_index=True, width="stretch")
+
 st.caption(
-    "Any alarm: share of simulated deployments where the cumulative alarm fired. For scenarios "
-    "where nothing changed, every alarm is false. Months to alarm counts the first month of the "
-    "change as month 1. O/E is observed over expected readmissions; 1.00 means calibrated. "
-    "All three methods use the same alarm rule and the same 5% planned false alarm rate.")
+    f"{sim['replicates']} simulated deployments per scenario. All three methods use the same "
+    "cumulative alarm rule and limit. The standard monitor compares predictions with every "
+    "patient's recorded outcome; the untreated only view drops treated patients without "
+    "reweighting. Treatment effect 40%; results for 20% and 60% are in the case study.")
+
+with st.expander("What the correction costs"):
+    e = sc["stable"]
+    st.markdown(
+        f"Reweighting leaves about {e['mean_ess']:,.0f} effective patients out of 2,000 a month, so "
+        f"monthly intervals are wider. With the model unchanged, CounterSignal's monthly "
+        f"observed/expected was off by {e['countersignal']['oe_abs_error']:.3f} on average, "
+        f"against {e['untreated_only']['oe_abs_error']:.3f} for the untreated only view, and it "
+        f"returned \"not enough evidence yet\" in {e['countersignal']['insufficient_windows_mean']:.1f} "
+        f"of 12 months against {e['untreated_only']['insufficient_windows_mean']:.1f}. Its 95% "
+        f"intervals contained the true value in {pct(e['countersignal']['oe_ci_coverage'])} of months. "
+        "Single months rarely settle the question at this volume; the cumulative alarm carries "
+        "the evidence across months.")
+
 st.page_link("pages/1_Benchmark_Explorer.py", label="Explore a simulated deployment month by month",
              icon="📈")
 st.page_link("pages/2_Run_On_Your_Data.py", label="Run CounterSignal on your own deployment log", icon="🧪")

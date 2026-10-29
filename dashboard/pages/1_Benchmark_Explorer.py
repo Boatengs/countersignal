@@ -21,7 +21,8 @@ if table is None:
     st.warning("No example run saved for this scenario.")
     st.stop()
 
-st.markdown("One of the simulated deployments behind the benchmark. Each month draws new "
+st.markdown("The first simulated deployment of each scenario, shown as run rather than chosen "
+            "for its result. Each month draws new "
             "patients from the held out pool.")
 st.subheader("Is the model still calibrated?")
 st.plotly_chart(oe_chart(table, tuple(s["simulation"]["oe_band"])), width="stretch")
