@@ -1,0 +1,164 @@
+{
+  "config": "diabetes-logistic",
+  "dataset": "diabetes",
+  "model": "logistic regression",
+  "outcome": "30 day readmission",
+  "data": {
+    "encounters": 101766,
+    "patients": 71518,
+    "excluded_disposition_ids": [
+      11,
+      13,
+      14,
+      19,
+      20,
+      21
+    ],
+    "excluded_disposition_labels": [
+      "Expired",
+      "Hospice / home",
+      "Hospice / medical facility",
+      "Expired at home. Medicaid only, hospice.",
+      "Expired in a medical facility. Medicaid only, hospice.",
+      "Expired, place unknown. Medicaid only, hospice."
+    ],
+    "first_encounters": 71518,
+    "cohort": 69973,
+    "home_disposition_ids": [
+      1
+    ],
+    "readmitted_30d": 6277,
+    "readmission_rate": 0.08970602946850928,
+    "sha256": "f82ac129da2ddd2299391ff6fbae3a6a58b3edcf59ac9d7bd480c00fe453112a",
+    "source": "https://archive.ics.uci.edu/static/public/296/diabetes+130-us+hospitals+for+years+1999-2008.zip",
+    "citation": "Clore, J., Cios, K., DeShazo, J., & Strack, B. (2014). Diabetes 130-US Hospitals for Years 1999-2008 [Dataset]. UCI Machine Learning Repository. https://doi.org/10.24432/C5230J"
+  },
+  "split": {
+    "development": 20991,
+    "reference": 13995,
+    "pool": 34987
+  },
+  "features": [
+    "time_in_hospital",
+    "num_lab_procedures",
+    "num_procedures",
+    "num_medications",
+    "number_outpatient",
+    "number_emergency",
+    "number_inpatient",
+    "number_diagnoses",
+    "age",
+    "female",
+    "emergency_admission",
+    "discharged_home",
+    "a1c_tested",
+    "med_change",
+    "diabetes_med",
+    "insulin",
+    "dx_circulatory",
+    "dx_respiratory",
+    "dx_digestive",
+    "dx_diabetes",
+    "dx_injury",
+    "dx_musculoskeletal",
+    "dx_genitourinary",
+    "dx_neoplasms"
+  ],
+  "alert_threshold": 0.1411795168671414,
+  "reference_auc": 0.631045437770661,
+  "reference_oe": 1.0656114313978846,
+  "pool_auc": 0.6181842630738147,
+  "pool_oe": 0.9864763257223629,
+  "population_truth": {
+    "stable": {
+      "before": {
+        "oe": 0.9864763257223629,
+        "auc": 0.618184263073986
+      },
+      "after": {
+        "oe": 0.9864763257223629,
+        "auc": 0.618184263073986
+      }
+    },
+    "case_mix": {
+      "before": {
+        "oe": 0.9864763257223629,
+        "auc": 0.618184263073986
+      },
+      "after": {
+        "oe": 0.9167322743625664,
+        "auc": 0.6809609817611929
+      }
+    },
+    "high_risk_drift": {
+      "before": {
+        "oe": 0.9864763257223629,
+        "auc": 0.618184263073986
+      },
+      "after": {
+        "oe": 1.35,
+        "auc": 0.7299270902689874
+      }
+    },
+    "small_hospital": {
+      "before": {
+        "oe": 0.9864763257223629,
+        "auc": 0.618184263073986
+      },
+      "after": {
+        "oe": 0.9864763257223629,
+        "auc": 0.618184263073986
+      }
+    },
+    "hidden_confounder": {
+      "before": {
+        "oe": 0.9864763257223629,
+        "auc": 0.618184263073986
+      },
+      "after": {
+        "oe": 0.9864763257223629,
+        "auc": 0.618184263073986
+      }
+    }
+  },
+  "scenario_labels": {
+    "stable": "Model unchanged, interventions on",
+    "case_mix": "Sicker case mix (more prior inpatient stays) from month 5, model unchanged",
+    "high_risk_drift": "Outcome risk rises among alerted patients from month 5",
+    "small_hospital": "Small hospital, 150 patients a month, model unchanged",
+    "hidden_confounder": "Model unchanged; treatment also depends on prior emergency visits, which the monitor does not see"
+  },
+  "simulation": {
+    "windows": 12,
+    "n_per_window": 2000,
+    "n_small_hospital": 150,
+    "p_treat_alerted": 0.7,
+    "p_treat_other": 0.05,
+    "treatment_driver": "prior inpatient stays",
+    "driver_log_odds_per_sd": 0.5,
+    "effects": [
+      0.4,
+      0.2,
+      0.6
+    ],
+    "oe_band": [
+      0.8,
+      1.25
+    ],
+    "hidden_confounder": "prior emergency visits",
+    "hidden_log_odds_per_sd": 1.0,
+    "drift_target_oe": 1.35,
+    "drift_event_weight": 4.99921808802886,
+    "feng_run_in_months": 6,
+    "sampling": "with replacement within each month",
+    "alpha": 0.05,
+    "propensity_covariates": [
+      "alerted",
+      "number_inpatient",
+      "age"
+    ],
+    "replicates": 200,
+    "n_boot": 200
+  },
+  "runtime_seconds": 7009.4
+}

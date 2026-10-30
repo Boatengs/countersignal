@@ -1,0 +1,120 @@
+{
+  "config": "sepsis-logistic",
+  "dataset": "sepsis",
+  "model": "logistic regression",
+  "outcome": "in hospital death",
+  "data": {
+    "admissions": 110204,
+    "deaths": 8105,
+    "mortality_rate": 0.07354542484846285,
+    "sha256": "f1be6f4aa2b70a66a7efa55242d294e852a19c7b2790b71351d8cf226a570339",
+    "source": "https://archive.ics.uci.edu/static/public/827/sepsis+survival+minimal+clinical+records.zip",
+    "citation": "Chicco, D., & Jurman, G. (2020). Sepsis Survival Minimal Clinical Records [Dataset]. UCI Machine Learning Repository. https://doi.org/10.24432/C53C8N",
+    "file": "s41598-020-73558-3_sepsis_survival_dataset.zip/s41598-020-73558-3_sepsis_survival_primary_cohort.csv"
+  },
+  "split": {
+    "development": 33061,
+    "reference": 22041,
+    "pool": 55102
+  },
+  "features": [
+    "age_years",
+    "female",
+    "episode_number"
+  ],
+  "alert_threshold": 0.1437252288124648,
+  "reference_auc": 0.7112973973397635,
+  "reference_oe": 1.0147827803322187,
+  "pool_auc": 0.7042678758468124,
+  "pool_oe": 0.9780075934027823,
+  "population_truth": {
+    "stable": {
+      "before": {
+        "oe": 0.9780075934027823,
+        "auc": 0.7042678758468135
+      },
+      "after": {
+        "oe": 0.9780075934027823,
+        "auc": 0.7042678758468135
+      }
+    },
+    "case_mix": {
+      "before": {
+        "oe": 0.9780075934027823,
+        "auc": 0.7042678758468135
+      },
+      "after": {
+        "oe": 0.9717549920439247,
+        "auc": 0.6285607625215764
+      }
+    },
+    "high_risk_drift": {
+      "before": {
+        "oe": 0.9780075934027823,
+        "auc": 0.7042678758468135
+      },
+      "after": {
+        "oe": 1.35,
+        "auc": 0.7893262018204884
+      }
+    },
+    "small_hospital": {
+      "before": {
+        "oe": 0.9780075934027823,
+        "auc": 0.7042678758468135
+      },
+      "after": {
+        "oe": 0.9780075934027823,
+        "auc": 0.7042678758468135
+      }
+    },
+    "hidden_confounder": {
+      "before": {
+        "oe": 0.9780075934027823,
+        "auc": 0.7042678758468135
+      },
+      "after": {
+        "oe": 0.9780075934027823,
+        "auc": 0.7042678758468135
+      }
+    }
+  },
+  "scenario_labels": {
+    "stable": "Model unchanged, interventions on",
+    "case_mix": "Older case mix from month 5, model unchanged",
+    "high_risk_drift": "Outcome risk rises among alerted patients from month 5",
+    "small_hospital": "Small hospital, 200 patients a month, model unchanged",
+    "hidden_confounder": "Model unchanged; treatment also depends on number of prior sepsis episodes, which the monitor does not see"
+  },
+  "simulation": {
+    "windows": 12,
+    "n_per_window": 3000,
+    "n_small_hospital": 200,
+    "p_treat_alerted": 0.7,
+    "p_treat_other": 0.05,
+    "treatment_driver": "age",
+    "driver_log_odds_per_sd": 0.5,
+    "effects": [
+      0.4
+    ],
+    "oe_band": [
+      0.8,
+      1.25
+    ],
+    "hidden_confounder": "number of prior sepsis episodes",
+    "hidden_log_odds_per_sd": 1.0,
+    "drift_target_oe": 1.35,
+    "drift_event_weight": 3.719853444104001,
+    "feng_run_in_months": 6,
+    "sampling": "with replacement within each month",
+    "alpha": 0.05,
+    "propensity_covariates": [
+      "alerted",
+      "age_years",
+      "episode_number"
+    ],
+    "replicates": 200,
+    "n_boot": 200
+  },
+  "runtime_seconds": 6859.3
+}

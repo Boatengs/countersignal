@@ -1,0 +1,7 @@
+{
+  "source": "https://archive.ics.uci.edu/static/public/827/sepsis+survival+minimal+clinical+records.zip",
+  "page": "https://archive.ics.uci.edu/dataset/827/sepsis+survival+minimal+clinical+records",
+  "license": "licensed under a Creative Commons Attribution 4.0 International (CC BY 4.0) license",
+  "sha256": "f1be6f4aa2b70a66a7efa55242d294e852a19c7b2790b71351d8cf226a570339",
+  "downloaded_utc": "2026-10-29T23:02:07+00:00"
+}
