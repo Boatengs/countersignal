@@ -2,6 +2,8 @@
 
 Performance monitoring for deployed clinical risk models that corrects for the interventions their alerts trigger, with uncertainty intervals, small sample verdicts and sequential drift alarms.
 
+**Live dashboard:** [countersignal.streamlit.app](https://countersignal.streamlit.app)
+
 ## The problem
 
 A readmission or deterioration model flags a patient, the care team intervenes, and the event the model predicted does not happen. Standard monitoring compares predictions with recorded outcomes, so a model that is working looks miscalibrated, and the more effective the intervention, the larger the apparent error. Monitoring only the untreated patients helps, but they are mostly low risk, so a change concentrated in the patients who get treated is easy to miss. Small hospitals face a second problem: too few cases for monthly metrics to mean anything.
@@ -78,6 +80,8 @@ print(to_markdown(result))
 `reference_df` is the model's validation data from before deployment (score, outcome and the covariates). `deployment_log_df` has one row per scored patient after deployment. `result.table` has one row per period, labelled in its `window` column whatever the input column is called.
 
 ## Dashboard
+
+Live at [countersignal.streamlit.app](https://countersignal.streamlit.app). To run it locally:
 
 ```bash
 pip install -r requirements.txt
