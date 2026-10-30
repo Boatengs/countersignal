@@ -16,8 +16,10 @@ if s is None:
 config = pick_config(s)
 c = s["configs"][config]
 main = c["simulation"]["effects"][0]
-options = {k.split("@")[0]: v["label"] for k, v in c["scenarios"].items()
-           if float(k.split("@")[1]) == main}
+ORDER = ["stable", "high_risk_drift", "case_mix", "small_hospital", "hidden_confounder"]
+found = {k.split("@")[0]: v["label"] for k, v in c["scenarios"].items()
+         if float(k.split("@")[1]) == main}
+options = {k: found[k] for k in ORDER if k in found}
 scenario = st.radio("Scenario", list(options), format_func=options.get, horizontal=False)
 table = example(config, scenario)
 if table is None:

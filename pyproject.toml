@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "countersignal"
-version = "0.1.0"
+version = "0.2.0"
 description = "Performance monitoring for deployed clinical risk models that corrects for the interventions their alerts trigger, with uncertainty intervals, small sample verdicts and sequential drift alarms."
 readme = "README.md"
 license = "Apache-2.0"

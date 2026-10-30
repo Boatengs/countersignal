@@ -49,8 +49,9 @@ for name, label in CONFIG_LABELS.items():
         overview.append({"Dataset and model": label, "Monitor": mlabel,
                          "False alarm, model unchanged": pct(st_[m]["any_alarm_rate"]) if st_ else "n/a",
                          "Drift caught": pct(dr[m].get("detected_rate")) if dr else "n/a",
-                         "Median month of first alarm": first_month(dr[m]) if dr else "n/a"})
-st.markdown("**All four configurations** (planned false alarm rate 5%; drift begins in month 5)")
+                         "Median month of first alarm (1 = first month of drift)":
+                             first_month(dr[m]) if dr else "n/a"})
+st.markdown("**All four configurations** (planned false alarm rate 5%; drift begins in deployment month 5)")
 st.dataframe(pd.DataFrame(overview), hide_index=True, width="stretch", height=36 * (len(overview) + 1) + 4)
 
 st.subheader("One configuration in detail")
@@ -87,7 +88,7 @@ if "high_risk_drift" in sc:
     measures = [
         ("Deployments where the change was caught", lambda e: pct(e.get("detected_rate"))),
         ("Alarm before the change began", lambda e: pct(e.get("alarm_before_shift_rate"))),
-        ("Median month of first alarm", first_month),
+        ("Median month of first alarm (1 = first month of drift)", first_month),
     ]
     st.dataframe(pd.DataFrame([{"Measure": n, **{METHOD_LABELS[m]: f(d[m]) for m in METHOD_LABELS}}
                                for n, f in measures]), hide_index=True, width="stretch")
@@ -97,7 +98,8 @@ st.caption(
     "limit and test whether the model is calibrated. The Feng et al. monitor is an independent "
     "implementation of their score based CUSUM: it tests whether outcomes among untreated patients "
     "change relative to the start, given the score and the treatment confounders. In the case mix "
-    "scenario the model's own calibration moves slightly, so not every alarm there is false.")
+    "scenario the model's own calibration moves slightly and its discrimination moves more, so not "
+    "every alarm there is false.")
 
 with st.expander("What the correction costs"):
     e = sc["stable"]

@@ -23,3 +23,5 @@ jobs:
         run: ruff check .
       - name: Test
         run: pytest
+      - name: Docs match results
+        run: python benchmarks/tables.py --check

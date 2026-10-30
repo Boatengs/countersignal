@@ -7,4 +7,4 @@ uncertainty intervals, small sample verdicts and sequential drift alarms.
 from .monitor import AWAITING, DRIFT, INSUFFICIENT, STABLE, Monitor, MonitorConfig, MonitorResult
 
 __all__ = ["AWAITING", "DRIFT", "INSUFFICIENT", "STABLE", "Monitor", "MonitorConfig", "MonitorResult"]
-__version__ = "0.1.0"
+__version__ = "0.2.0"
