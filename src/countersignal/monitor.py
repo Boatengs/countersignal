@@ -77,17 +77,25 @@ def _oe_window_needed(oe: float, lo: float, hi: float, n_eff: float,
 
 
 def _validate(frame: pd.DataFrame, cols: list[str], name: str, binary: list[str],
-              may_be_blank: str | None = None) -> None:
+              may_be_blank: str | None = None, score: str | None = None,
+              numeric: tuple[str, ...] = ()) -> None:
     missing = [c for c in cols if c not in frame.columns]
     if missing:
         raise ValueError(f"{name} is missing columns: {missing}")
     bad = [c for c in cols if c != may_be_blank and frame[c].isna().any()]
     if bad:
         raise ValueError(f"{name} has missing values in {bad}")
+    for c in (*binary, *numeric, *([score] if score else [])):
+        if not pd.api.types.is_numeric_dtype(frame[c]):
+            raise ValueError(f"{name}.{c} must be numeric")
     for c in binary:
         vals = frame[c].dropna().unique()
         if not np.isin(vals, [0, 1]).all():
             raise ValueError(f"{name}.{c} must be 0/1 (blank allowed only for outcomes)")
+    if score is not None:
+        s = frame[score].dropna()
+        if not (np.isfinite(s).all() and s.between(0, 1).all()):
+            raise ValueError(f"{name}.{score} must be a predicted risk between 0 and 1")
 
 
 class Monitor:
@@ -104,7 +112,7 @@ class Monitor:
         if c.n_boot < 20:
             raise ValueError("n_boot must be at least 20 for percentile intervals")
         _validate(reference, [c.score, c.outcome, *c.covariates], "reference", [c.outcome],
-                  may_be_blank=c.outcome)
+                  may_be_blank=c.outcome, score=c.score, numeric=tuple(c.covariates))
         ref = reference.dropna(subset=[c.score, c.outcome])
         self.reference = ref
         y, p = ref[c.outcome].to_numpy(float), ref[c.score].to_numpy(float)
@@ -124,10 +132,18 @@ class Monitor:
     def run(self, log: pd.DataFrame) -> MonitorResult:
         c = self.cfg
         _validate(log, [c.score, c.treated, c.window, c.outcome, *c.covariates], "log",
-                  [c.treated, c.outcome], may_be_blank=c.outcome)
+                  [c.treated, c.outcome], may_be_blank=c.outcome, score=c.score,
+                  numeric=tuple(c.covariates))
+        roles = [c.score, c.outcome, c.treated, c.window]
+        if len(set(roles)) < len(roles) or set(roles) & set(c.covariates):
+            raise ValueError("score, outcome, treated, window and covariates must be distinct columns")
         log = log.reset_index(drop=True)
         rngs = [np.random.default_rng(s) for s in np.random.SeedSequence(c.seed).spawn(2)]
-        windows = sorted(pd.unique(log[c.window]))
+        try:
+            windows = sorted(pd.unique(log[c.window]))
+        except TypeError:
+            raise ValueError(f"log.{c.window} mixes value types (for example numbers and text), "
+                             "so the months cannot be put in order") from None
         if len(windows) > c.horizon:
             warnings.warn(f"{len(windows)} windows exceed the alarm horizon of {c.horizon}; the "
                           "false alarm rate is only controlled over the first horizon windows",

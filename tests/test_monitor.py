@@ -123,6 +123,24 @@ def test_invalid_inputs_fail_clearly():
         Monitor(ref, MonitorConfig(**{**CFG, "n_boot": 5}))
 
 
+def test_wrong_column_roles_fail_clearly():
+    ref, log = make_deployment(n_per_window=200, windows=1, seed=16)
+    # a raw covariate is not a predicted risk
+    with pytest.raises(ValueError, match="between 0 and 1"):
+        Monitor(ref, MonitorConfig(**{**CFG, "score": "x1", "covariates": ["x2", "alerted"]}))
+    # a continuous column is not a treatment flag
+    with pytest.raises(ValueError, match="0/1"):
+        Monitor(ref, MonitorConfig(**{**CFG, "covariates": ["x2", "alerted"],
+                                      "treated": "x1"})).run(log)
+    # the same column cannot fill two roles
+    with pytest.raises(ValueError, match="distinct"):
+        Monitor(ref, MonitorConfig(**{**CFG, "treated": "alerted"})).run(log)
+    # covariates must be numeric
+    text = log.assign(site="A")
+    with pytest.raises(ValueError, match="numeric"):
+        Monitor(ref.assign(site="A"), MonitorConfig(**{**CFG, "covariates": ["x1", "site"]})).run(text)
+
+
 def test_end_to_end_false_alarm_rate_of_monitor():
     """Whole pipeline (estimated weights, exact null, CUSUM) under no change: planned 5%."""
     alarms = 0
