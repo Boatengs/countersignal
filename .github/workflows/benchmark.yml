@@ -131,8 +131,8 @@ jobs:
           python benchmarks/aggregate.py
       - name: Commit data and results
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "Sam Boateng"
+          git config user.email "32736261+Boatengs@users.noreply.github.com"
           git add -A data results
           git diff --cached --quiet && { echo "nothing to commit"; exit 0; }
           git commit -m "Benchmark results: UCI Diabetes 130-US Hospitals and Sepsis Survival, two models"
